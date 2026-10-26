@@ -72,6 +72,9 @@
   .layar { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
   .layar[hidden] { display: none; }
   .kotak h3 { font-size: 0.95rem; margin: 20px 0 8px; }
+  .awal { margin-top: 12px; font-size: 0.9rem; color: var(--muted); }
+  .awal b { color: var(--ink); }
+  .awal b.minus { color: var(--over); }
   .btnrow { display: flex; gap: 10px; }
   .btnrow button { flex: 1; padding: 13px; font-size: 1rem; font-weight: 600; cursor: pointer; border-radius: 12px; }
   .btnrow .utama { background: var(--accent); color: var(--accent-ink); border: 0; }
@@ -183,7 +186,8 @@
   <div class="hero">
     <small>Sisa uang bulan ini</small>
     <div class="sisa num" id="sisa">Rp 0</div>
-    <div class="meter" role="img" aria-label="Pengeluaran dibanding pemasukan"><i id="meterIsi" style="width:0%"></i></div>
+    <div class="meter" role="img" aria-label="Pengeluaran dibanding uang yang tersedia bulan ini"><i id="meterIsi" style="width:0%"></i></div>
+    <div class="awal" id="awalBox">Saldo awal bulan ini: <b class="num" id="saldoAwal">Rp 0</b> <span>(terbawa dari bulan sebelumnya)</span></div>
     <div class="dua">
       <div><b class="num" id="totMasuk">Rp 0</b><span>Pemasukan</span></div>
       <div><b class="num" id="totKeluar">Rp 0</b><span>Pengeluaran</span></div>
@@ -270,7 +274,7 @@ const pad = n => String(n).padStart(2, "0");
 const ymDari = d => d.getFullYear() + "-" + pad(d.getMonth() + 1);
 const tglHariIni = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
 
-const state = { bulan: ymDari(new Date()), entries: [], budget: 0, jenis: "keluar", nama: "" };
+const state = { bulan: ymDari(new Date()), entries: [], budget: 0, jenis: "keluar", nama: "", saldoAwal: 0, awalCache: null, awalKotor: true };
 // ================= ISI DUA BARIS INI (Supabase: Project Settings > API) =================
 const SUPABASE_URL = "https://eomksfdigvnmzujunkea.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__XiGS9xoWZr6laTmGT6bOg_LT5y_wc7";
@@ -342,7 +346,7 @@ function daftar() {
 }
 async function keluar() {
   try { if (sb) await sb.auth.signOut(); } catch (e) { /* tetap keluar di layar */ }
-  sesi.user = null; sesi.rumah = null; state.entries = []; state.nama = "";
+  sesi.user = null; sesi.rumah = null; state.entries = []; state.nama = ""; state.saldoAwal = 0; state.awalCache = null; state.awalKotor = true;
   $("aPass").value = ""; $("aPesan").textContent = ""; tampil("auth");
 }
 
@@ -411,6 +415,22 @@ function setSinkron(t) { $("sinkron").textContent = t; }
 const awalBulan = ym => ym + "-01";
 function awalBulanDepan(ym) { const [y, m] = ym.split("-").map(Number); return ymDari(new Date(y, m, 1)) + "-01"; }
 
+async function hitungSaldoAwal(bulan) {
+  const hid = sesi.rumah.id, batas = awalBulan(bulan), ukuran = 1000;
+  let total = 0, dari = 0;
+  for (;;) { // ambil per 1000 baris supaya tidak terpotong batas bawaan Supabase
+    const { data, error } = await sb.from("transactions").select("jenis, jumlah")
+      .eq("household_id", hid).lt("tanggal", batas)
+      .order("tanggal", { ascending: true }).order("id", { ascending: true })
+      .range(dari, dari + ukuran - 1);
+    if (error) throw error;
+    (data || []).forEach(r => { total += (r.jenis === "masuk" ? 1 : -1) * Number(r.jumlah); });
+    if (!data || data.length < ukuran) break;
+    dari += ukuran;
+  }
+  return total;
+}
+
 async function muat() {
   if (!sesi.rumah) return;
   setSinkron("Memuat...");
@@ -428,6 +448,18 @@ async function muat() {
     kat: r.kategori || "", catatan: r.catatan || "", oleh: r.oleh || "", ts: r.created_at
   }));
   state.budget = bg.data ? Number(bg.data.anggaran) : 0;
+
+  // Saldo awal = total (pemasukan - pengeluaran) semua transaksi sebelum bulan ini.
+  // Dihitung ulang hanya bila bulan berganti, setelah ada perubahan, atau tiap 5 menit.
+  const basi = !state.awalCache || state.awalCache.bulan !== state.bulan || state.awalKotor
+    || (Date.now() - state.awalCache.waktu > 300000);
+  if (basi) {
+    try {
+      state.saldoAwal = await hitungSaldoAwal(state.bulan);
+      state.awalCache = { bulan: state.bulan, waktu: Date.now() };
+      state.awalKotor = false;
+    } catch (e) { setSinkron("Gagal memuat saldo awal"); infoError(e); return; }
+  }
   setSinkron("Tersinkron " + new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }));
   render();
 }
@@ -450,17 +482,23 @@ function labelBulan(ym) {
 function render() {
   $("bulanLabel").textContent = labelBulan(state.bulan);
   const t = totalan();
-  const sisa = t.masuk - t.keluar;
+  const awal = state.saldoAwal || 0;
+  const sisa = awal + t.masuk - t.keluar;
   const el = $("sisa");
   el.textContent = (sisa < 0 ? "- " : "") + rp(Math.abs(sisa));
   el.className = "sisa num" + (sisa < 0 ? " minus" : "");
   $("totMasuk").textContent = rp(t.masuk);
   $("totKeluar").textContent = rp(t.keluar);
 
-  const pct = t.masuk > 0 ? Math.min(100, (t.keluar / t.masuk) * 100) : (t.keluar > 0 ? 100 : 0);
+  const sa = $("saldoAwal");
+  sa.textContent = (awal < 0 ? "- " : "") + rp(Math.abs(awal));
+  sa.className = "num" + (awal < 0 ? " minus" : "");
+
+  const tersedia = Math.max(awal, 0) + t.masuk; // uang yang tersedia dibelanjakan bulan ini
+  const pct = tersedia > 0 ? Math.min(100, (t.keluar / tersedia) * 100) : (t.keluar > 0 ? 100 : 0);
   const isi = $("meterIsi");
   isi.style.width = pct + "%";
-  isi.className = t.keluar > t.masuk ? "over" : (pct >= 80 ? "warn" : "");
+  isi.className = sisa < 0 ? "over" : (pct >= 80 ? "warn" : "");
 
   renderAnggaran(t);
   renderKategori(t);
@@ -602,6 +640,7 @@ async function hapus(id) {
   const { error } = await sb.from("transactions").delete().eq("id", id);
   if (error) { setSinkron("Gagal menghapus"); infoError(error); return; }
   setSinkron("Transaksi dihapus");
+  state.awalKotor = true;
   await muat();
 }
 
@@ -621,6 +660,7 @@ async function simpanTransaksi() {
   $("jumlah").value = ""; $("catatan").value = "";
   $("pesan").textContent = (state.jenis === "masuk" ? "Pemasukan " : "Pengeluaran ") + rp(j) + " tersimpan.";
   state.bulan = tgl.slice(0, 7);
+  state.awalKotor = true;
   await muat();
 }
 
@@ -634,7 +674,8 @@ function dataRingkasan() {
   const t = totalan();
   const r = [
     ["Bulan", labelBulan(state.bulan)],
-    ["Pemasukan", t.masuk], ["Pengeluaran", t.keluar], ["Sisa uang", t.masuk - t.keluar],
+    ["Saldo awal (dari bulan sebelumnya)", state.saldoAwal || 0],
+    ["Pemasukan", t.masuk], ["Pengeluaran", t.keluar], ["Sisa uang", (state.saldoAwal || 0) + t.masuk - t.keluar],
     ["Anggaran bulanan", state.budget || 0], [],
     ["Kategori", "Pengeluaran (Rp)", "Persen"]
   ];
