@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Keuangan Rumah Tangga</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#f1f2f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14172b" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Keuangan">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>
   :root {
     --bg: #f1f2f8;
@@ -272,6 +281,12 @@
       <button class="ghost" id="btnSalin">Salin untuk Excel</button>
     </div>
     <p class="pesan" id="eksporPesan" role="status"></p>
+  </section>
+
+  <section id="secPasang" hidden>
+    <h2>Pasang di layar utama</h2>
+    <p class="sub" id="tipPasang"></p>
+    <button class="primary" id="btnPasang" hidden>Pasang aplikasi</button>
   </section>
 
   <section>
@@ -814,7 +829,42 @@ window.addEventListener("unhandledrejection", ev => {
   el.textContent = "Kesalahan: " + pesanErr(ev.reason);
 });
 
+let promptPasang = null;
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault(); promptPasang = e;
+  $("btnPasang").hidden = false; $("secPasang").hidden = false;
+});
+window.addEventListener("appinstalled", () => { promptPasang = null; $("secPasang").hidden = true; });
+
+function siapkanPasang() {
+  const mandiri = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone;
+  if (mandiri) { $("secPasang").hidden = true; return; }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  $("tipPasang").textContent = ios
+    ? "Di iPhone/iPad: buka lewat Safari, ketuk ikon Bagikan, lalu pilih Tambah ke Layar Utama."
+    : "Pasang supaya aplikasi punya ikon sendiri dan terbuka layar penuh. Kalau tombol di bawah tidak muncul, ketuk menu ⋮ di browser lalu pilih Instal aplikasi atau Tambahkan ke layar utama.";
+  $("secPasang").hidden = false;
+  $("btnPasang").onclick = async () => {
+    if (!promptPasang) return;
+    promptPasang.prompt();
+    try { await promptPasang.userChoice; } catch (e) { /* abaikan */ }
+    promptPasang = null; $("btnPasang").hidden = true;
+  };
+}
+
+window.addEventListener("offline", () => {
+  if ($("app").hidden) return;
+  const b = $("banner"); b.hidden = false;
+  b.textContent = "Kamu sedang offline. Catatan baru belum bisa disimpan sampai internet kembali.";
+  setSinkron("Offline");
+});
+window.addEventListener("online", () => { if (sesi.rumah) { $("banner").hidden = true; muat(); } });
+
 (async function init() {
+  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.register("sw.js").catch(() => { /* aplikasi tetap jalan tanpa mode pasang */ });
+  }
+  siapkanPasang();
   $("kategori").innerHTML = KATEGORI.map(k => '<option>' + k + '</option>').join("");
   $("tgl").value = tglHariIni();
   $("jKeluar").onclick = () => setJenis("keluar");
