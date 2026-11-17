@@ -137,6 +137,11 @@
   .masuk { color: var(--ok); font-weight: 700; }
   .keluar { font-weight: 700; }
   .del { padding: 6px 10px; font-size: 0.82rem; }
+  .tabung { color: var(--accent); font-weight: 700; }
+  .tab-saldo { font-size: 2.2rem; line-height: 1.1; margin: 0 0 10px; letter-spacing: -0.02em; }
+  .aksi { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+  .aksi .del { white-space: nowrap; }
+  .awal.tabung-baris b { color: var(--accent); }
   .kosong { color: var(--muted); margin: 0; }
   .nama-box { display: flex; gap: 8px; align-items: center; margin-top: 10px; font-size: 0.85rem; color: var(--muted); }
   .nama-box input { width: 150px; padding: 6px 9px; font-size: 0.9rem; }
@@ -216,6 +221,7 @@
     <div class="sisa num" id="sisa">Rp 0</div>
     <div class="meter" role="img" aria-label="Pengeluaran dibanding uang yang tersedia bulan ini"><i id="meterIsi" style="width:0%"></i></div>
     <div class="awal" id="awalBox">Saldo awal bulan ini: <b class="num" id="saldoAwal">Rp 0</b> <span>(terbawa dari bulan sebelumnya)</span></div>
+    <div class="awal tabung-baris" id="tabBox">Ditabung bulan ini: <b class="num" id="ditabung">Rp 0</b> <span>(sudah dikurangi dari sisa uang)</span></div>
     <div class="dua">
       <div><b class="num" id="totMasuk">Rp 0</b><span>Pemasukan</span></div>
       <div><b class="num" id="totKeluar">Rp 0</b><span>Pengeluaran</span></div>
@@ -250,6 +256,27 @@
     </div>
   </section>
 
+  <section id="secTabungan">
+    <h2>Tabungan keluarga</h2>
+    <p class="sub">Satu tabungan bersama, misalnya dana darurat. Uang yang disetor dikurangi dari sisa uang bulan ini.</p>
+    <div class="form">
+      <div class="tab-saldo num" id="tabSaldo">Rp 0</div>
+      <div class="meter" role="img" aria-label="Kemajuan tabungan menuju target"><i id="tabBar" style="width:0%"></i></div>
+      <div class="ket" id="tabKet"></div>
+      <label for="targetInput">Target tabungan (opsional)</label>
+      <input id="targetInput" inputmode="numeric" placeholder="contoh: 30.000.000" autocomplete="off">
+      <label for="tabJumlah">Jumlah (Rp)</label>
+      <input id="tabJumlah" inputmode="numeric" placeholder="contoh: 500.000" autocomplete="off">
+      <label for="tabCatatan">Catatan (opsional)</label>
+      <input id="tabCatatan" maxlength="60" placeholder="contoh: sisihkan dari gaji" autocomplete="off">
+      <div class="btnrow" style="margin-top:14px">
+        <button class="utama" id="btnSetor">Setor</button>
+        <button class="ghost" id="btnTarik">Tarik</button>
+      </div>
+      <p class="pesan" id="tabPesan" role="status"></p>
+    </div>
+  </section>
+
   <section>
     <h2>Anggaran bulanan</h2>
     <p class="sub">Satu batas pengeluaran untuk seluruh rumah tangga, berlaku tiap bulan.</p>
@@ -271,6 +298,13 @@
   <section>
     <h2>Riwayat bulan ini</h2>
     <ul class="hist" id="hist"></ul>
+  </section>
+
+  <section id="secSampah">
+    <h2 id="judulSampah">Sampah</h2>
+    <p class="sub">Transaksi yang dihapus disimpan di sini. Kamu bisa memulihkannya kapan saja.</p>
+    <ul class="hist" id="sampahList"></ul>
+    <button class="ghost" id="btnKosongkan" style="width:100%;padding:11px;margin-top:10px" hidden>Kosongkan Sampah</button>
   </section>
 
   <section>
@@ -314,7 +348,7 @@ const pad = n => String(n).padStart(2, "0");
 const ymDari = d => d.getFullYear() + "-" + pad(d.getMonth() + 1);
 const tglHariIni = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
 
-const state = { bulan: ymDari(new Date()), entries: [], budget: 0, jenis: "keluar", nama: "", saldoAwal: 0, awalCache: null, awalKotor: true };
+const state = { bulan: ymDari(new Date()), entries: [], budget: 0, jenis: "keluar", nama: "", saldoAwal: 0, awalCache: null, awalKotor: true, tabungan: 0, target: 0, sampah: [] };
 // ================= ISI DUA BARIS INI (Supabase: Project Settings > API) =================
 const SUPABASE_URL = "https://eomksfdigvnmzujunkea.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__XiGS9xoWZr6laTmGT6bOg_LT5y_wc7";
@@ -340,6 +374,7 @@ function pesanErr(e) {
   if (/signups? (are )?(not allowed|disabled)|signup.*disabled/i.test(m)) return "Pendaftaran email dimatikan di Supabase (Authentication > Sign In / Providers > Email).";
   if (/invalid api key|apikey|invalid jwt|JWT/i.test(m)) return "Kunci Supabase salah. Periksa SUPABASE_ANON_KEY di file.";
   if (/Failed to fetch|NetworkError|Load failed/i.test(m)) return "Tidak bisa terhubung ke Supabase. Periksa internet dan SUPABASE_URL.";
+  if (/dihapus_pada|dihapus_oleh|target_tabungan|setor_tabungan|tarik_tabungan|transactions_jenis_check/i.test(m)) return "Database belum diperbarui. Jalankan tambahan-tabungan-sampah.sql di SQL Editor Supabase.";
   if (/relation .* does not exist|schema cache|Could not find/i.test(m)) return "Tabel belum ada. Jalankan schema.sql di SQL Editor Supabase.";
   if (/Could not find the function|function .* does not exist/i.test(m)) return "Fungsi database belum ada. Jalankan schema.sql di SQL Editor Supabase.";
   return m || "Terjadi kesalahan.";
@@ -419,7 +454,7 @@ function konfirmasiKeluar() {
 async function keluar() {
   pemulihan = false;
   try { if (sb) await sb.auth.signOut(); } catch (e) { /* tetap keluar di layar */ }
-  sesi.user = null; sesi.rumah = null; state.entries = []; state.nama = ""; state.saldoAwal = 0; state.awalCache = null; state.awalKotor = true;
+  sesi.user = null; sesi.rumah = null; state.entries = []; state.nama = ""; state.saldoAwal = 0; state.awalCache = null; state.awalKotor = true; state.tabungan = 0; state.target = 0; state.sampah = [];
   $("aPass").value = ""; $("aPesan").textContent = ""; tampil("auth");
 }
 
@@ -491,16 +526,36 @@ function setSinkron(t) { $("sinkron").textContent = t; }
 const awalBulan = ym => ym + "-01";
 function awalBulanDepan(ym) { const [y, m] = ym.split("-").map(Number); return ymDari(new Date(y, m, 1)) + "-01"; }
 
+// Pengaruh tiap jenis transaksi terhadap sisa uang bulanan
+const efek = (jenis, jumlah) => (jenis === "masuk" || jenis === "tarik_tabungan" ? 1 : -1) * jumlah;
+
 async function hitungSaldoAwal(bulan) {
   const hid = sesi.rumah.id, batas = awalBulan(bulan), ukuran = 1000;
   let total = 0, dari = 0;
-  for (;;) { // ambil per 1000 baris supaya tidak terpotong batas bawaan Supabase
+  for (;;) {
     const { data, error } = await sb.from("transactions").select("jenis, jumlah")
-      .eq("household_id", hid).lt("tanggal", batas)
+      .eq("household_id", hid).lt("tanggal", batas).is("dihapus_pada", null)
       .order("tanggal", { ascending: true }).order("id", { ascending: true })
       .range(dari, dari + ukuran - 1);
     if (error) throw error;
-    (data || []).forEach(r => { total += (r.jenis === "masuk" ? 1 : -1) * Number(r.jumlah); });
+    (data || []).forEach(r => { total += efek(r.jenis, Number(r.jumlah)); });
+    if (!data || data.length < ukuran) break;
+    dari += ukuran;
+  }
+  return total;
+}
+
+// Saldo tabungan = total setoran - total penarikan, sepanjang waktu
+async function hitungTabungan() {
+  const hid = sesi.rumah.id, ukuran = 1000;
+  let total = 0, dari = 0;
+  for (;;) {
+    const { data, error } = await sb.from("transactions").select("jenis, jumlah")
+      .eq("household_id", hid).in("jenis", ["setor_tabungan", "tarik_tabungan"]).is("dihapus_pada", null)
+      .order("tanggal", { ascending: true }).order("id", { ascending: true })
+      .range(dari, dari + ukuran - 1);
+    if (error) throw error;
+    (data || []).forEach(r => { total += (r.jenis === "setor_tabungan" ? 1 : -1) * Number(r.jumlah); });
     if (!data || data.length < ukuran) break;
     dari += ukuran;
   }
@@ -511,43 +566,51 @@ async function muat() {
   if (!sesi.rumah) return;
   setSinkron("Memuat...");
   const hid = sesi.rumah.id;
-  const [tr, bg] = await Promise.all([
+  const [tr, bg, sp] = await Promise.all([
     sb.from("transactions").select("id, tanggal, jenis, jumlah, kategori, catatan, oleh, created_at")
       .eq("household_id", hid).gte("tanggal", awalBulan(state.bulan)).lt("tanggal", awalBulanDepan(state.bulan))
-      .order("tanggal", { ascending: false }),
-    sb.from("budgets").select("anggaran").eq("household_id", hid).maybeSingle()
+      .is("dihapus_pada", null).order("tanggal", { ascending: false }),
+    sb.from("budgets").select("anggaran, target_tabungan").eq("household_id", hid).maybeSingle(),
+    sb.from("transactions").select("id, tanggal, jenis, jumlah, kategori, catatan, oleh, created_at, dihapus_pada, dihapus_oleh")
+      .eq("household_id", hid).not("dihapus_pada", "is", null).order("dihapus_pada", { ascending: false }).limit(50)
   ]);
-  if (tr.error || bg.error) { setSinkron("Gagal memuat"); infoError(tr.error || bg.error); return; }
+  if (tr.error || bg.error || sp.error) { setSinkron("Gagal memuat"); infoError(tr.error || bg.error || sp.error); return; }
   $("banner").hidden = true;
-  state.entries = (tr.data || []).map(r => ({
+  const peta = r => ({
     id: r.id, tgl: r.tanggal, jenis: r.jenis, jumlah: Number(r.jumlah),
-    kat: r.kategori || "", catatan: r.catatan || "", oleh: r.oleh || "", ts: r.created_at
-  }));
+    kat: r.kategori || "", catatan: r.catatan || "", oleh: r.oleh || "", ts: r.created_at,
+    dihapusPada: r.dihapus_pada || null, dihapusOleh: r.dihapus_oleh || ""
+  });
+  state.entries = (tr.data || []).map(peta);
+  state.sampah = (sp.data || []).map(peta);
   state.budget = bg.data ? Number(bg.data.anggaran) : 0;
+  state.target = bg.data ? Number(bg.data.target_tabungan || 0) : 0;
 
-  // Saldo awal = total (pemasukan - pengeluaran) semua transaksi sebelum bulan ini.
-  // Dihitung ulang hanya bila bulan berganti, setelah ada perubahan, atau tiap 5 menit.
+  // Saldo awal dan saldo tabungan dihitung ulang hanya bila bulan berganti, setelah ada perubahan, atau tiap 5 menit.
   const basi = !state.awalCache || state.awalCache.bulan !== state.bulan || state.awalKotor
     || (Date.now() - state.awalCache.waktu > 300000);
   if (basi) {
     try {
-      state.saldoAwal = await hitungSaldoAwal(state.bulan);
+      const [awal, tab] = await Promise.all([hitungSaldoAwal(state.bulan), hitungTabungan()]);
+      state.saldoAwal = awal; state.tabungan = tab;
       state.awalCache = { bulan: state.bulan, waktu: Date.now() };
       state.awalKotor = false;
-    } catch (e) { setSinkron("Gagal memuat saldo awal"); infoError(e); return; }
+    } catch (e) { setSinkron("Gagal memuat saldo"); infoError(e); return; }
   }
   setSinkron("Tersinkron " + new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }));
   render();
 }
 
 function totalan() {
-  let masuk = 0, keluar = 0; const per = {};
+  let masuk = 0, keluar = 0, ditabung = 0; const per = {};
   KATEGORI.forEach(k => per[k] = 0);
   state.entries.forEach(e => {
     if (e.jenis === "masuk") masuk += e.jumlah;
+    else if (e.jenis === "setor_tabungan") ditabung += e.jumlah;
+    else if (e.jenis === "tarik_tabungan") ditabung -= e.jumlah;
     else { keluar += e.jumlah; per[e.kat] = (per[e.kat] || 0) + e.jumlah; }
   });
-  return { masuk, keluar, per };
+  return { masuk, keluar, ditabung, per };
 }
 
 function labelBulan(ym) {
@@ -559,7 +622,7 @@ function render() {
   $("bulanLabel").textContent = labelBulan(state.bulan);
   const t = totalan();
   const awal = state.saldoAwal || 0;
-  const sisa = awal + t.masuk - t.keluar;
+  const sisa = awal + t.masuk - t.keluar - t.ditabung;
   const el = $("sisa");
   el.textContent = (sisa < 0 ? "- " : "") + rp(Math.abs(sisa));
   el.className = "sisa num" + (sisa < 0 ? " minus" : "");
@@ -571,14 +634,47 @@ function render() {
   sa.className = "num" + (awal < 0 ? " minus" : "");
 
   const tersedia = Math.max(awal, 0) + t.masuk; // uang yang tersedia dibelanjakan bulan ini
-  const pct = tersedia > 0 ? Math.min(100, (t.keluar / tersedia) * 100) : (t.keluar > 0 ? 100 : 0);
+  const terpakai = Math.max(0, t.keluar + t.ditabung); // belanja + uang yang disisihkan ke tabungan
+  const pct = tersedia > 0 ? Math.min(100, (terpakai / tersedia) * 100) : (terpakai > 0 ? 100 : 0);
   const isi = $("meterIsi");
   isi.style.width = pct + "%";
   isi.className = sisa < 0 ? "over" : (pct >= 80 ? "warn" : "");
 
+  const dt = $("ditabung");
+  dt.textContent = (t.ditabung < 0 ? "- " : "") + rp(Math.abs(t.ditabung));
+
+  renderTabungan();
   renderAnggaran(t);
   renderKategori(t);
   renderRiwayat();
+  renderSampah();
+}
+
+function renderTabungan() {
+  $("tabSaldo").textContent = rp(state.tabungan);
+  const inp = $("targetInput");
+  if (document.activeElement !== inp) inp.value = state.target ? new Intl.NumberFormat("id-ID").format(state.target) : "";
+  const bar = $("tabBar"), ket = $("tabKet");
+  if (state.target > 0) {
+    const p = Math.max(0, Math.min(1, state.tabungan / state.target));
+    bar.style.width = (p * 100) + "%";
+    ket.className = "ket";
+    ket.textContent = state.tabungan >= state.target
+      ? "Target " + rp(state.target) + " tercapai. Selamat!"
+      : Math.round(p * 100) + "% dari target " + rp(state.target) + ". Kurang " + rp(state.target - state.tabungan) + " lagi.";
+  } else {
+    bar.style.width = "0%";
+    ket.className = "ket";
+    ket.textContent = "Belum ada target. Isi target di bawah agar kemajuannya terlihat.";
+  }
+}
+
+// Tampilan satu baris transaksi menurut jenisnya
+function gayaJenis(e) {
+  if (e.jenis === "masuk") return { awalan: "+ ", kls: "masuk", nama: "Pemasukan" };
+  if (e.jenis === "setor_tabungan") return { awalan: "→ ", kls: "tabung", nama: "Setor ke tabungan" };
+  if (e.jenis === "tarik_tabungan") return { awalan: "← ", kls: "tabung", nama: "Tarik dari tabungan" };
+  return { awalan: "- ", kls: "keluar", nama: e.kat };
 }
 
 function renderAnggaran(t) {
@@ -688,11 +784,12 @@ function renderRiwayat() {
     const li = document.createElement("li");
     const kiri = document.createElement("div");
     const jml = document.createElement("div");
-    jml.className = "num " + (e.jenis === "masuk" ? "masuk" : "keluar");
-    jml.textContent = (e.jenis === "masuk" ? "+ " : "- ") + rp(e.jumlah);
+    const g = gayaJenis(e);
+    jml.className = "num " + g.kls;
+    jml.textContent = g.awalan + rp(e.jumlah);
     const meta = document.createElement("div"); meta.className = "meta";
     const d = new Date(e.tgl + "T00:00:00").toLocaleDateString("id-ID", { day: "numeric", month: "short" });
-    meta.textContent = [d, e.jenis === "masuk" ? "Pemasukan" : e.kat, e.catatan, e.oleh].filter(Boolean).join(" \u2022 ");
+    meta.textContent = [d, g.nama, e.catatan, e.oleh].filter(Boolean).join(" \u2022 ");
     kiri.appendChild(jml); kiri.appendChild(meta);
     const btn = document.createElement("button");
     btn.className = "ghost del"; btn.textContent = "Hapus";
@@ -713,11 +810,105 @@ async function simpanAnggaran(nilai) {
 }
 
 async function hapus(id) {
-  const { error } = await sb.from("transactions").delete().eq("id", id);
+  const { error } = await sb.from("transactions")
+    .update({ dihapus_pada: new Date().toISOString(), dihapus_oleh: state.nama }).eq("id", id);
   if (error) { setSinkron("Gagal menghapus"); infoError(error); return; }
-  setSinkron("Transaksi dihapus");
+  setSinkron("Dipindahkan ke Sampah");
   state.awalKotor = true;
   await muat();
+}
+
+async function pulihkan(e) {
+  const { error } = await sb.from("transactions").update({ dihapus_pada: null, dihapus_oleh: null }).eq("id", e.id);
+  if (error) { setSinkron("Gagal memulihkan"); infoError(error); return; }
+  const bln = e.tgl.slice(0, 7);
+  setSinkron(bln === state.bulan ? "Transaksi dipulihkan" : "Dipulihkan ke " + labelBulan(bln));
+  state.awalKotor = true;
+  await muat();
+}
+
+async function hapusPermanen(e) {
+  if (!confirm("Hapus permanen transaksi " + rp(e.jumlah) + "?\nIni tidak bisa dikembalikan.")) return;
+  const { error } = await sb.from("transactions").delete().eq("id", e.id);
+  if (error) { setSinkron("Gagal menghapus permanen"); infoError(error); return; }
+  setSinkron("Dihapus permanen");
+  await muat();
+}
+
+async function kosongkanSampah() {
+  if (!state.sampah.length) return;
+  if (!confirm("Hapus permanen semua isi Sampah (" + state.sampah.length + " transaksi)?\nIni tidak bisa dikembalikan.")) return;
+  const { error } = await sb.from("transactions").delete().eq("household_id", sesi.rumah.id).not("dihapus_pada", "is", null);
+  if (error) { setSinkron("Gagal mengosongkan Sampah"); infoError(error); return; }
+  setSinkron("Sampah dikosongkan");
+  await muat();
+}
+
+function renderSampah() {
+  $("judulSampah").textContent = "Sampah" + (state.sampah.length ? " (" + state.sampah.length + ")" : "");
+  $("btnKosongkan").hidden = !state.sampah.length;
+  const ul = $("sampahList"); ul.innerHTML = "";
+  if (!state.sampah.length) {
+    const li = document.createElement("li");
+    li.innerHTML = '<p class="kosong">Sampah kosong.</p>';
+    ul.appendChild(li); return;
+  }
+  state.sampah.forEach(e => {
+    const li = document.createElement("li");
+    const kiri = document.createElement("div");
+    const g = gayaJenis(e);
+    const jml = document.createElement("div"); jml.className = "num " + g.kls; jml.textContent = g.awalan + rp(e.jumlah);
+    const meta = document.createElement("div"); meta.className = "meta";
+    const d = new Date(e.tgl + "T00:00:00").toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+    const dihapus = e.dihapusPada ? new Date(e.dihapusPada).toLocaleDateString("id-ID", { day: "numeric", month: "short" }) : "";
+    meta.textContent = [d, g.nama, e.catatan, e.oleh].filter(Boolean).join(" \u2022 ")
+      + "  |  dihapus" + (e.dihapusOleh ? " oleh " + e.dihapusOleh : "") + (dihapus ? " " + dihapus : "");
+    kiri.appendChild(jml); kiri.appendChild(meta);
+    const aksi = document.createElement("div"); aksi.className = "aksi";
+    const b1 = document.createElement("button"); b1.className = "ghost del"; b1.textContent = "\u21A9 Pulihkan";
+    b1.setAttribute("aria-label", "Pulihkan transaksi " + rp(e.jumlah)); b1.onclick = () => pulihkan(e);
+    const b2 = document.createElement("button"); b2.className = "ghost del"; b2.textContent = "Hapus permanen";
+    b2.setAttribute("aria-label", "Hapus permanen transaksi " + rp(e.jumlah)); b2.onclick = () => hapusPermanen(e);
+    aksi.appendChild(b1); aksi.appendChild(b2);
+    li.appendChild(kiri); li.appendChild(aksi); ul.appendChild(li);
+  });
+}
+
+async function catatTabungan(jenis) {
+  const pesan = $("tabPesan");
+  const j = angka($("tabJumlah").value);
+  if (!j) { pesan.textContent = "Isi jumlah dulu, misalnya 500.000."; return; }
+  kunci(["btnSetor", "btnTarik"], true);
+  try {
+    if (jenis === "tarik_tabungan") {
+      const saldo = await hitungTabungan(); // saldo terbaru, bukan salinan lama
+      if (j > saldo) { pesan.textContent = "Penarikan melebihi saldo tabungan (" + rp(saldo) + ")."; return; }
+    }
+    const tgl = tglHariIni();
+    const { error } = await sb.from("transactions").insert({
+      household_id: sesi.rumah.id, tanggal: tgl, jenis, jumlah: j, kategori: "Tabungan",
+      catatan: $("tabCatatan").value.trim() || null, oleh: state.nama
+    });
+    if (error) { pesan.textContent = "Gagal menyimpan: " + pesanErr(error); return; }
+    $("tabJumlah").value = ""; $("tabCatatan").value = "";
+    pesan.textContent = jenis === "setor_tabungan"
+      ? "Setor " + rp(j) + " ke tabungan tersimpan. Sisa uang bulan ini berkurang."
+      : "Tarik " + rp(j) + " dari tabungan tersimpan. Sisa uang bulan ini bertambah.";
+    state.bulan = tgl.slice(0, 7);
+    state.awalKotor = true;
+    await muat();
+  } catch (e) { pesan.textContent = pesanErr(e); }
+  finally { kunci(["btnSetor", "btnTarik"], false); }
+}
+
+async function simpanTarget(nilai) {
+  const { error } = await sb.from("budgets").upsert(
+    { household_id: sesi.rumah.id, target_tabungan: nilai, updated_at: new Date().toISOString() },
+    { onConflict: "household_id" });
+  if (error) { setSinkron("Gagal menyimpan target"); infoError(error); return; }
+  state.target = nilai;
+  setSinkron("Target tabungan disimpan");
+  renderTabungan();
 }
 
 async function simpanTransaksi() {
@@ -743,7 +934,8 @@ async function simpanTransaksi() {
 function dataTransaksi() {
   const urut = [...state.entries].sort((a, b) => a.tgl.localeCompare(b.tgl) || (a.ts || "").localeCompare(b.ts || ""));
   return [["Tanggal", "Jenis", "Kategori", "Jumlah (Rp)", "Catatan", "Dicatat oleh"]].concat(
-    urut.map(e => [e.tgl, e.jenis === "masuk" ? "Pemasukan" : "Pengeluaran", e.jenis === "masuk" ? "" : e.kat, e.jumlah, e.catatan || "", e.oleh || ""])
+    urut.map(e => [e.tgl, ({ masuk: "Pemasukan", keluar: "Pengeluaran", setor_tabungan: "Setor tabungan", tarik_tabungan: "Tarik tabungan" })[e.jenis],
+      e.jenis === "masuk" ? "" : (e.jenis === "keluar" ? e.kat : "Tabungan"), e.jumlah, e.catatan || "", e.oleh || ""])
   );
 }
 function dataRingkasan() {
@@ -751,7 +943,8 @@ function dataRingkasan() {
   const r = [
     ["Bulan", labelBulan(state.bulan)],
     ["Saldo awal (dari bulan sebelumnya)", state.saldoAwal || 0],
-    ["Pemasukan", t.masuk], ["Pengeluaran", t.keluar], ["Sisa uang", (state.saldoAwal || 0) + t.masuk - t.keluar],
+    ["Pemasukan", t.masuk], ["Pengeluaran", t.keluar], ["Ditabung bulan ini", t.ditabung],
+    ["Sisa uang", (state.saldoAwal || 0) + t.masuk - t.keluar - t.ditabung], ["Saldo tabungan", state.tabungan || 0],
     ["Anggaran bulanan", state.budget || 0], [],
     ["Kategori", "Pengeluaran (Rp)", "Persen"]
   ];
@@ -882,6 +1075,13 @@ window.addEventListener("online", () => { if (sesi.rumah) { $("banner").hidden =
   $("btnBatalSandi").onclick = async () => { await keluar(); };
   $("btnKeluar").onclick = konfirmasiKeluar;
   $("btnKeluar3").onclick = konfirmasiKeluar;
+  $("btnSetor").onclick = () => catatTabungan("setor_tabungan");
+  $("btnTarik").onclick = () => catatTabungan("tarik_tabungan");
+  $("btnKosongkan").onclick = kosongkanSampah;
+  const formatAngka = e => { const n = angka(e.target.value); e.target.value = n ? new Intl.NumberFormat("id-ID").format(n) : ""; };
+  $("tabJumlah").addEventListener("input", formatAngka);
+  $("targetInput").addEventListener("input", formatAngka);
+  $("targetInput").addEventListener("change", e => simpanTarget(angka(e.target.value)));
   $("btnKeluar2").onclick = keluar;
   $("btnBuat").onclick = buatRumah;
   $("btnGabung").onclick = gabungRumah;
