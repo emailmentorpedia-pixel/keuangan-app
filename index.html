@@ -138,6 +138,23 @@
   .keluar { font-weight: 700; }
   .del { padding: 6px 10px; font-size: 0.82rem; }
   .tabung { color: var(--accent); font-weight: 700; }
+  .tabs { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 6; display: flex; gap: 4px; background: var(--bg);
+    margin: 12px -16px 0; padding: 8px 16px 8px; border-bottom: 1px solid var(--line); }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 2px 7px; border: 0;
+    background: transparent; color: var(--muted); font: 600 0.74rem/1.1 inherit; font-family: inherit; border-radius: 12px; cursor: pointer; }
+  .tab svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .tab[aria-selected="true"] { background: var(--panel); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.14); }
+  .tab:focus-visible { outline: 3px solid var(--accent); outline-offset: 1px; }
+  .panel[hidden] { display: none; }
+  .panel > section:first-child { margin-top: 20px; }
+  .kartu-tab { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 14px; padding: 13px 16px; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 14px; color: var(--ink); font: inherit; font-size: 0.95rem; cursor: pointer; text-align: left; }
+  .kartu-tab span:first-child { color: var(--muted); }
+  .kartu-tab b { margin-left: auto; font-size: 1.1rem; color: var(--accent); }
+  .kartu-tab .pnh { font-size: 1.4rem; color: var(--muted); line-height: 1; }
+  .kode-box { background: var(--bg); border: 1px dashed var(--line); border-radius: 12px; padding: 12px 14px; }
+  .kode-box small { color: var(--muted); }
+  .kode-box .kode { font-size: 1.6rem; letter-spacing: 0.06em; word-break: break-all; }
   .tab-saldo { font-size: 2.2rem; line-height: 1.1; margin: 0 0 10px; letter-spacing: -0.02em; }
   .aksi { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
   .aksi .del { white-space: nowrap; }
@@ -201,6 +218,7 @@
 </div>
 
 <main id="app" hidden>
+
   <div class="top">
     <div class="bulan">
       <button class="ghost icon" id="prev" aria-label="Bulan sebelumnya">&#8249;</button>
@@ -211,11 +229,13 @@
   </div>
   <div class="nama-box" style="flex-wrap:wrap">
     <span id="infoRumah"></span>
-    <button class="ghost" id="btnKode" style="margin-left:auto;padding:6px 10px;font-size:0.85rem">Kode undangan</button>
-    <button class="ghost" id="btnKeluar" style="padding:6px 10px;font-size:0.85rem">Keluar</button>
   </div>
   <div class="banner" id="banner" hidden></div>
 
+  
+  <nav class="tabs" role="tablist" aria-label="Menu utama"><button class="tab" role="tab" id="tab-dasbor" aria-controls="panel-dasbor" aria-selected="true" data-tab="dasbor" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.6"/></svg><span>Dasbor</span></button><button class="tab" role="tab" id="tab-transaksi" aria-controls="panel-transaksi" aria-selected="false" data-tab="transaksi" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4.5" cy="6" r="1.2"/><circle cx="4.5" cy="12" r="1.2"/><circle cx="4.5" cy="18" r="1.2"/></svg><span>Transaksi</span></button><button class="tab" role="tab" id="tab-tabungan" aria-controls="panel-tabungan" aria-selected="false" data-tab="tabungan" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7.5A2.5 2.5 0 015.5 5H18v4"/><path d="M3 7.5V17a2.5 2.5 0 002.5 2.5h13a1.5 1.5 0 001.5-1.5V10.5A1.5 1.5 0 0018.5 9h-13A2.5 2.5 0 013 7.5z"/><circle cx="16.5" cy="14" r="1.3"/></svg><span>Tabungan</span></button><button class="tab" role="tab" id="tab-lainnya" aria-controls="panel-lainnya" aria-selected="false" data-tab="lainnya" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="19" cy="12" r="1.7" fill="currentColor"/></svg><span>Lainnya</span></button></nav>
+
+  <div class="panel" id="panel-dasbor" role="tabpanel" aria-labelledby="tab-dasbor">
   <div class="hero">
     <small>Sisa uang bulan ini</small>
     <div class="sisa num" id="sisa">Rp 0</div>
@@ -228,8 +248,31 @@
     </div>
   </div>
 
+  
+  <button class="kartu-tab" id="kartuTab" type="button"><span>Tabungan keluarga</span><b class="num" id="kartuTabSaldo">Rp 0</b><span class="pnh" aria-hidden="true">&#8250;</span></button>
   <div class="alerts" id="alerts" role="status"></div>
 
+  
+  <section>
+    <h2>Anggaran bulanan</h2>
+    <p class="sub">Satu batas pengeluaran untuk seluruh rumah tangga, berlaku tiap bulan.</p>
+    <div class="form">
+      <label for="anggaranInput" style="margin-top:0">Anggaran per bulan (Rp)</label>
+      <input id="anggaranInput" inputmode="numeric" placeholder="contoh: 5.000.000" autocomplete="off">
+      <div class="meter" style="margin-top:14px" role="img" aria-label="Pengeluaran dibanding anggaran"><i id="anggaranBar" style="width:0%"></i></div>
+      <div class="ket" id="anggaranKet"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pengeluaran per kategori</h2>
+    <p class="sub">Ke mana uang bulan ini paling banyak keluar.</p>
+    <div id="donut"></div>
+    <div id="kategoriList"></div>
+  </section>
+  </div>
+
+  <div class="panel" id="panel-transaksi" role="tabpanel" aria-labelledby="tab-transaksi" hidden>
   <section>
     <h2>Catat transaksi</h2>
     <div class="form">
@@ -256,6 +299,20 @@
     </div>
   </section>
 
+  <section>
+    <h2>Riwayat bulan ini</h2>
+    <ul class="hist" id="hist"></ul>
+  </section>
+
+  <section id="secSampah">
+    <h2 id="judulSampah">Sampah</h2>
+    <p class="sub">Transaksi yang dihapus disimpan di sini. Kamu bisa memulihkannya kapan saja.</p>
+    <ul class="hist" id="sampahList"></ul>
+    <button class="ghost" id="btnKosongkan" style="width:100%;padding:11px;margin-top:10px" hidden>Kosongkan Sampah</button>
+  </section>
+  </div>
+
+  <div class="panel" id="panel-tabungan" role="tabpanel" aria-labelledby="tab-tabungan" hidden>
   <section id="secTabungan">
     <h2>Tabungan keluarga</h2>
     <p class="sub">Satu tabungan bersama, misalnya dana darurat. Uang yang disetor dikurangi dari sisa uang bulan ini.</p>
@@ -276,37 +333,9 @@
       <p class="pesan" id="tabPesan" role="status"></p>
     </div>
   </section>
+  </div>
 
-  <section>
-    <h2>Anggaran bulanan</h2>
-    <p class="sub">Satu batas pengeluaran untuk seluruh rumah tangga, berlaku tiap bulan.</p>
-    <div class="form">
-      <label for="anggaranInput" style="margin-top:0">Anggaran per bulan (Rp)</label>
-      <input id="anggaranInput" inputmode="numeric" placeholder="contoh: 5.000.000" autocomplete="off">
-      <div class="meter" style="margin-top:14px" role="img" aria-label="Pengeluaran dibanding anggaran"><i id="anggaranBar" style="width:0%"></i></div>
-      <div class="ket" id="anggaranKet"></div>
-    </div>
-  </section>
-
-  <section>
-    <h2>Pengeluaran per kategori</h2>
-    <p class="sub">Ke mana uang bulan ini paling banyak keluar.</p>
-    <div id="donut"></div>
-    <div id="kategoriList"></div>
-  </section>
-
-  <section>
-    <h2>Riwayat bulan ini</h2>
-    <ul class="hist" id="hist"></ul>
-  </section>
-
-  <section id="secSampah">
-    <h2 id="judulSampah">Sampah</h2>
-    <p class="sub">Transaksi yang dihapus disimpan di sini. Kamu bisa memulihkannya kapan saja.</p>
-    <ul class="hist" id="sampahList"></ul>
-    <button class="ghost" id="btnKosongkan" style="width:100%;padding:11px;margin-top:10px" hidden>Kosongkan Sampah</button>
-  </section>
-
+  <div class="panel" id="panel-lainnya" role="tabpanel" aria-labelledby="tab-lainnya" hidden>
   <section>
     <h2>Ekspor data</h2>
     <p class="sub">Mengekspor bulan yang sedang ditampilkan: daftar transaksi dan ringkasannya.</p>
@@ -323,11 +352,15 @@
     <button class="primary" id="btnPasang" hidden>Pasang aplikasi</button>
   </section>
 
-  <section>
-    <h2>Akun</h2>
+  <section id="secAkun">
+    <h2>Akun dan keluarga</h2>
     <p class="sub" id="infoAkun"></p>
-    <button class="ghost" id="btnKeluar3" style="width:100%;padding:13px;font-size:1rem;font-weight:600">Keluar dari akun</button>
+    <div class="kode-box"><small>Kode undangan keluarga</small><div class="kode num" id="kodeTampil">-</div></div>
+    <button class="ghost" id="btnKode" style="width:100%;padding:12px;font-size:1rem;font-weight:600;margin-top:10px">Salin kode undangan</button>
+    <p class="pesan" id="kodePesan" role="status"></p>
+    <button class="ghost" id="btnKeluar3" style="width:100%;padding:13px;font-size:1rem;font-weight:600;margin-top:6px">Keluar dari akun</button>
   </section>
+  </div>
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -453,6 +486,7 @@ function konfirmasiKeluar() {
 
 async function keluar() {
   pemulihan = false;
+  try { sessionStorage.removeItem("kk-tab"); } catch (e) { /* abaikan */ }
   try { if (sb) await sb.auth.signOut(); } catch (e) { /* tetap keluar di layar */ }
   sesi.user = null; sesi.rumah = null; state.entries = []; state.nama = ""; state.saldoAwal = 0; state.awalCache = null; state.awalKotor = true; state.tabungan = 0; state.target = 0; state.sampah = [];
   $("aPass").value = ""; $("aPesan").textContent = ""; tampil("auth");
@@ -509,16 +543,31 @@ async function pastikanSupabase() {
 
 function bukaApp() {
   tampil("app");
+  $("kodeTampil").textContent = sesi.rumah.kode;
+  pilihTab(tabTersimpan(), false);
   $("infoRumah").textContent = sesi.rumah.nama + " \u2022 Halo, " + state.nama;
   $("infoAkun").textContent = "Masuk sebagai " + ((sesi.user && sesi.user.email) || "-");
   state.bulan = ymDari(new Date());
   $("tgl").value = tglHariIni();
   muat();
 }
+const TABS = ["dasbor", "transaksi", "tabungan", "lainnya"];
+function tabTersimpan() { try { return sessionStorage.getItem("kk-tab") || "dasbor"; } catch (e) { return "dasbor"; } }
+function pilihTab(nama, gulir) {
+  if (!TABS.includes(nama)) nama = "dasbor";
+  TABS.forEach(t => {
+    const aktif = t === nama;
+    $("panel-" + t).hidden = !aktif;
+    const b = $("tab-" + t); b.setAttribute("aria-selected", aktif ? "true" : "false"); b.tabIndex = aktif ? 0 : -1;
+  });
+  try { sessionStorage.setItem("kk-tab", nama); } catch (e) { /* abaikan */ }
+  if (gulir !== false) window.scrollTo(0, 0);
+}
+
 async function salinKode() {
   const kode = sesi.rumah.kode;
-  try { await navigator.clipboard.writeText(kode); setSinkron("Kode undangan " + kode + " tersalin"); }
-  catch (e) { setSinkron("Kode undangan: " + kode); }
+  try { await navigator.clipboard.writeText(kode); $("kodePesan").textContent = "Kode " + kode + " tersalin. Kirim ke anggota keluarga."; }
+  catch (e) { $("kodePesan").textContent = "Salin manual kode ini: " + kode; }
 }
 
 function setSinkron(t) { $("sinkron").textContent = t; }
@@ -652,6 +701,7 @@ function render() {
 
 function renderTabungan() {
   $("tabSaldo").textContent = rp(state.tabungan);
+  $("kartuTabSaldo").textContent = rp(state.tabungan);
   const inp = $("targetInput");
   if (document.activeElement !== inp) inp.value = state.target ? new Intl.NumberFormat("id-ID").format(state.target) : "";
   const bar = $("tabBar"), ket = $("tabKet");
@@ -1073,7 +1123,18 @@ window.addEventListener("online", () => { if (sesi.rumah) { $("banner").hidden =
   $("btnLupa").onclick = lupaSandi;
   $("btnSimpanSandi").onclick = simpanSandiBaru;
   $("btnBatalSandi").onclick = async () => { await keluar(); };
-  $("btnKeluar").onclick = konfirmasiKeluar;
+  TABS.forEach((t, i) => {
+    const b = $("tab-" + t);
+    b.addEventListener("click", () => pilihTab(t));
+    b.addEventListener("keydown", e => { // panah kiri/kanan berpindah menu
+      let j = null;
+      if (e.key === "ArrowRight") j = (i + 1) % TABS.length;
+      else if (e.key === "ArrowLeft") j = (i + TABS.length - 1) % TABS.length;
+      else if (e.key === "Home") j = 0; else if (e.key === "End") j = TABS.length - 1;
+      if (j !== null) { e.preventDefault(); pilihTab(TABS[j]); $("tab-" + TABS[j]).focus(); }
+    });
+  });
+  $("kartuTab").onclick = () => pilihTab("tabungan");
   $("btnKeluar3").onclick = konfirmasiKeluar;
   $("btnSetor").onclick = () => catatTabungan("setor_tabungan");
   $("btnTarik").onclick = () => catatTabungan("tarik_tabungan");
