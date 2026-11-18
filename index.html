@@ -315,17 +315,24 @@
   <div class="panel" id="panel-tabungan" role="tabpanel" aria-labelledby="tab-tabungan" hidden>
   <section id="secTabungan">
     <h2>Tabungan keluarga</h2>
-    <p class="sub">Satu tabungan bersama, misalnya dana darurat. Uang yang disetor dikurangi dari sisa uang bulan ini.</p>
+    <p class="sub">Satu tabungan bersama, misalnya dana darurat. Pilih apakah uang ikut sisa uang bulanan atau lewat dompet.</p>
     <div class="form">
       <div class="tab-saldo num" id="tabSaldo">Rp 0</div>
       <div class="meter" role="img" aria-label="Kemajuan tabungan menuju target"><i id="tabBar" style="width:0%"></i></div>
       <div class="ket" id="tabKet"></div>
+      <div class="ket" id="tabRingkas" style="margin-top:2px"></div>
       <label for="targetInput">Target tabungan (opsional)</label>
       <input id="targetInput" inputmode="numeric" placeholder="contoh: 30.000.000" autocomplete="off">
       <label for="tabJumlah">Jumlah (Rp)</label>
       <input id="tabJumlah" inputmode="numeric" placeholder="contoh: 500.000" autocomplete="off">
       <label for="tabCatatan">Catatan (opsional)</label>
       <input id="tabCatatan" maxlength="60" placeholder="contoh: sisihkan dari gaji" autocomplete="off">
+      <label>Pengaruh ke sisa uang bulanan</label>
+      <div class="seg" role="group" aria-label="Pengaruh ke sisa uang bulanan">
+        <button id="srcSisa" aria-pressed="true" type="button">Ikut sisa uang</button>
+        <button id="srcDompet" aria-pressed="false" type="button">Dompet</button>
+      </div>
+      <p class="sub" id="tabBantu" style="margin:8px 0 0"></p>
       <div class="btnrow" style="margin-top:14px">
         <button class="utama" id="btnSetor">Setor</button>
         <button class="ghost" id="btnTarik">Tarik</button>
@@ -370,6 +377,7 @@ const KATEGORI = [
   "Makan & belanja dapur", "Listrik, air, gas, internet", "Transportasi",
   "Sekolah & anak", "Kesehatan", "Cicilan & tagihan", "Hiburan", "Lainnya"
 ];
+const KAT_TAB = "Tabungan", KAT_TAB_DOMPET = "Tabungan (dompet)"; // kategori penanda: ikut sisa uang atau lewat dompet
 const KEY_CONFIG = "rt:config";
 const keyBulan = ym => "rt:bulan:" + ym;
 const KEY_NAMA = "rt:nama";
@@ -381,7 +389,7 @@ const pad = n => String(n).padStart(2, "0");
 const ymDari = d => d.getFullYear() + "-" + pad(d.getMonth() + 1);
 const tglHariIni = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
 
-const state = { bulan: ymDari(new Date()), entries: [], budget: 0, jenis: "keluar", nama: "", saldoAwal: 0, awalCache: null, awalKotor: true, tabungan: 0, target: 0, sampah: [] };
+const state = { bulan: ymDari(new Date()), entries: [], budget: 0, jenis: "keluar", nama: "", saldoAwal: 0, awalCache: null, awalKotor: true, tabungan: 0, target: 0, sampah: [], tabSumber: "sisa" };
 // ================= ISI DUA BARIS INI (Supabase: Project Settings > API) =================
 const SUPABASE_URL = "https://eomksfdigvnmzujunkea.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__XiGS9xoWZr6laTmGT6bOg_LT5y_wc7";
@@ -576,18 +584,21 @@ const awalBulan = ym => ym + "-01";
 function awalBulanDepan(ym) { const [y, m] = ym.split("-").map(Number); return ymDari(new Date(y, m, 1)) + "-01"; }
 
 // Pengaruh tiap jenis transaksi terhadap sisa uang bulanan
-const efek = (jenis, jumlah) => (jenis === "masuk" || jenis === "tarik_tabungan" ? 1 : -1) * jumlah;
+const efek = (jenis, jumlah, kat) => {
+  if ((jenis === "setor_tabungan" || jenis === "tarik_tabungan") && kat === KAT_TAB_DOMPET) return 0; // uang dari/ke dompet: tidak memengaruhi sisa uang bulanan
+  return (jenis === "masuk" || jenis === "tarik_tabungan" ? 1 : -1) * jumlah;
+};
 
 async function hitungSaldoAwal(bulan) {
   const hid = sesi.rumah.id, batas = awalBulan(bulan), ukuran = 1000;
   let total = 0, dari = 0;
   for (;;) {
-    const { data, error } = await sb.from("transactions").select("jenis, jumlah")
+    const { data, error } = await sb.from("transactions").select("jenis, jumlah, kategori")
       .eq("household_id", hid).lt("tanggal", batas).is("dihapus_pada", null)
       .order("tanggal", { ascending: true }).order("id", { ascending: true })
       .range(dari, dari + ukuran - 1);
     if (error) throw error;
-    (data || []).forEach(r => { total += efek(r.jenis, Number(r.jumlah)); });
+    (data || []).forEach(r => { total += efek(r.jenis, Number(r.jumlah), r.kategori); });
     if (!data || data.length < ukuran) break;
     dari += ukuran;
   }
@@ -651,15 +662,17 @@ async function muat() {
 }
 
 function totalan() {
-  let masuk = 0, keluar = 0, ditabung = 0; const per = {};
+  let masuk = 0, keluar = 0, ditabung = 0, tabDompet = 0; const per = {};
   KATEGORI.forEach(k => per[k] = 0);
   state.entries.forEach(e => {
     if (e.jenis === "masuk") masuk += e.jumlah;
-    else if (e.jenis === "setor_tabungan") ditabung += e.jumlah;
-    else if (e.jenis === "tarik_tabungan") ditabung -= e.jumlah;
+    else if (e.jenis === "setor_tabungan" || e.jenis === "tarik_tabungan") {
+      const nilai = (e.jenis === "setor_tabungan" ? 1 : -1) * e.jumlah;
+      if (e.kat === KAT_TAB_DOMPET) tabDompet += nilai; else ditabung += nilai;
+    }
     else { keluar += e.jumlah; per[e.kat] = (per[e.kat] || 0) + e.jumlah; }
   });
-  return { masuk, keluar, ditabung, per };
+  return { masuk, keluar, ditabung, tabDompet, per };
 }
 
 function labelBulan(ym) {
@@ -702,6 +715,10 @@ function render() {
 function renderTabungan() {
   $("tabSaldo").textContent = rp(state.tabungan);
   $("kartuTabSaldo").textContent = rp(state.tabungan);
+  const tt = totalan(), fm = n => (n < 0 ? "- " : "") + rp(Math.abs(n));
+  $("tabRingkas").textContent = (tt.ditabung || tt.tabDompet)
+    ? "Bulan ini: lewat sisa uang " + fm(tt.ditabung) + " \u2022 lewat dompet " + fm(tt.tabDompet)
+    : "Belum ada setoran atau penarikan bulan ini.";
   const inp = $("targetInput");
   if (document.activeElement !== inp) inp.value = state.target ? new Intl.NumberFormat("id-ID").format(state.target) : "";
   const bar = $("tabBar"), ket = $("tabKet");
@@ -722,8 +739,9 @@ function renderTabungan() {
 // Tampilan satu baris transaksi menurut jenisnya
 function gayaJenis(e) {
   if (e.jenis === "masuk") return { awalan: "+ ", kls: "masuk", nama: "Pemasukan" };
-  if (e.jenis === "setor_tabungan") return { awalan: "→ ", kls: "tabung", nama: "Setor ke tabungan" };
-  if (e.jenis === "tarik_tabungan") return { awalan: "← ", kls: "tabung", nama: "Tarik dari tabungan" };
+  const dompet = e.kat === KAT_TAB_DOMPET;
+  if (e.jenis === "setor_tabungan") return { awalan: "→ ", kls: "tabung", nama: "Setor ke tabungan" + (dompet ? " (dari dompet)" : "") };
+  if (e.jenis === "tarik_tabungan") return { awalan: "← ", kls: "tabung", nama: "Tarik dari tabungan" + (dompet ? " (ke dompet)" : "") };
   return { awalan: "- ", kls: "keluar", nama: e.kat };
 }
 
@@ -935,20 +953,34 @@ async function catatTabungan(jenis) {
       if (j > saldo) { pesan.textContent = "Penarikan melebihi saldo tabungan (" + rp(saldo) + ")."; return; }
     }
     const tgl = tglHariIni();
+    const dompet = state.tabSumber === "dompet";
     const { error } = await sb.from("transactions").insert({
-      household_id: sesi.rumah.id, tanggal: tgl, jenis, jumlah: j, kategori: "Tabungan",
+      household_id: sesi.rumah.id, tanggal: tgl, jenis, jumlah: j, kategori: dompet ? KAT_TAB_DOMPET : KAT_TAB,
       catatan: $("tabCatatan").value.trim() || null, oleh: state.nama
     });
     if (error) { pesan.textContent = "Gagal menyimpan: " + pesanErr(error); return; }
     $("tabJumlah").value = ""; $("tabCatatan").value = "";
-    pesan.textContent = jenis === "setor_tabungan"
-      ? "Setor " + rp(j) + " ke tabungan tersimpan. Sisa uang bulan ini berkurang."
-      : "Tarik " + rp(j) + " dari tabungan tersimpan. Sisa uang bulan ini bertambah.";
+    pesan.textContent = dompet
+      ? (jenis === "setor_tabungan"
+          ? "Setor " + rp(j) + " dari dompet ke tabungan tersimpan. Sisa uang bulan ini tidak berubah."
+          : "Tarik " + rp(j) + " dari tabungan ke dompet tersimpan. Sisa uang bulan ini tidak berubah.")
+      : (jenis === "setor_tabungan"
+          ? "Setor " + rp(j) + " ke tabungan tersimpan. Sisa uang bulan ini berkurang."
+          : "Tarik " + rp(j) + " dari tabungan tersimpan. Sisa uang bulan ini bertambah.");
     state.bulan = tgl.slice(0, 7);
     state.awalKotor = true;
     await muat();
   } catch (e) { pesan.textContent = pesanErr(e); }
   finally { kunci(["btnSetor", "btnTarik"], false); }
+}
+
+function setSumber(v) {
+  state.tabSumber = v;
+  $("srcSisa").setAttribute("aria-pressed", v === "sisa" ? "true" : "false");
+  $("srcDompet").setAttribute("aria-pressed", v === "dompet" ? "true" : "false");
+  $("tabBantu").textContent = v === "dompet"
+    ? "Uang diambil dari dompet saat setor, atau dikembalikan ke dompet saat tarik. Sisa uang bulan ini tidak berubah."
+    : "Setor mengurangi sisa uang bulan ini (uang disisihkan). Tarik menambahnya kembali.";
 }
 
 async function simpanTarget(nilai) {
@@ -985,7 +1017,7 @@ function dataTransaksi() {
   const urut = [...state.entries].sort((a, b) => a.tgl.localeCompare(b.tgl) || (a.ts || "").localeCompare(b.ts || ""));
   return [["Tanggal", "Jenis", "Kategori", "Jumlah (Rp)", "Catatan", "Dicatat oleh"]].concat(
     urut.map(e => [e.tgl, ({ masuk: "Pemasukan", keluar: "Pengeluaran", setor_tabungan: "Setor tabungan", tarik_tabungan: "Tarik tabungan" })[e.jenis],
-      e.jenis === "masuk" ? "" : (e.jenis === "keluar" ? e.kat : "Tabungan"), e.jumlah, e.catatan || "", e.oleh || ""])
+      e.jenis === "masuk" ? "" : (e.jenis === "keluar" ? e.kat : (e.kat || KAT_TAB)), e.jumlah, e.catatan || "", e.oleh || ""])
   );
 }
 function dataRingkasan() {
@@ -993,7 +1025,7 @@ function dataRingkasan() {
   const r = [
     ["Bulan", labelBulan(state.bulan)],
     ["Saldo awal (dari bulan sebelumnya)", state.saldoAwal || 0],
-    ["Pemasukan", t.masuk], ["Pengeluaran", t.keluar], ["Ditabung bulan ini", t.ditabung],
+    ["Pemasukan", t.masuk], ["Pengeluaran", t.keluar], ["Ditabung bulan ini (lewat sisa uang)", t.ditabung], ["Tabungan lewat dompet bulan ini", t.tabDompet],
     ["Sisa uang", (state.saldoAwal || 0) + t.masuk - t.keluar - t.ditabung], ["Saldo tabungan", state.tabungan || 0],
     ["Anggaran bulanan", state.budget || 0], [],
     ["Kategori", "Pengeluaran (Rp)", "Persen"]
@@ -1136,6 +1168,9 @@ window.addEventListener("online", () => { if (sesi.rumah) { $("banner").hidden =
   });
   $("kartuTab").onclick = () => pilihTab("tabungan");
   $("btnKeluar3").onclick = konfirmasiKeluar;
+  $("srcSisa").onclick = () => setSumber("sisa");
+  $("srcDompet").onclick = () => setSumber("dompet");
+  setSumber("sisa");
   $("btnSetor").onclick = () => catatTabungan("setor_tabungan");
   $("btnTarik").onclick = () => catatTabungan("tarik_tabungan");
   $("btnKosongkan").onclick = kosongkanSampah;
