@@ -292,6 +292,14 @@
           <input id="tgl" type="date">
         </div>
       </div>
+      <div id="bayarWrap">
+        <label>Dibayar dari</label>
+        <div class="seg" role="group" aria-label="Dibayar dari">
+          <button id="bayarSisa" aria-pressed="true" type="button">Sisa uang</button>
+          <button id="bayarTab" aria-pressed="false" type="button">Tabungan</button>
+        </div>
+        <p class="sub" id="bayarBantu" style="margin:8px 0 0"></p>
+      </div>
       <label for="catatan">Catatan (opsional)</label>
       <input id="catatan" placeholder="contoh: belanja pasar, token listrik" autocomplete="off" maxlength="60">
       <button class="primary" id="simpanBtn">Simpan</button>
@@ -378,6 +386,8 @@ const KATEGORI = [
   "Sekolah & anak", "Kesehatan", "Cicilan & tagihan", "Hiburan", "Lainnya"
 ];
 const KAT_TAB = "Tabungan", KAT_TAB_DOMPET = "Tabungan (dompet)"; // kategori penanda: ikut sisa uang atau lewat dompet
+const AWALAN_PAKAI = "Dipakai: "; // penanda: pengeluaran yang dibayar dari tabungan (kategori = "Dipakai: <kategori>")
+const dipakaiTab = e => e.jenis === "tarik_tabungan" && typeof e.kat === "string" && e.kat.startsWith(AWALAN_PAKAI);
 const KEY_CONFIG = "rt:config";
 const keyBulan = ym => "rt:bulan:" + ym;
 const KEY_NAMA = "rt:nama";
@@ -389,7 +399,7 @@ const pad = n => String(n).padStart(2, "0");
 const ymDari = d => d.getFullYear() + "-" + pad(d.getMonth() + 1);
 const tglHariIni = () => { const d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
 
-const state = { bulan: ymDari(new Date()), entries: [], budget: 0, jenis: "keluar", nama: "", saldoAwal: 0, awalCache: null, awalKotor: true, tabungan: 0, target: 0, sampah: [], tabSumber: "sisa" };
+const state = { bulan: ymDari(new Date()), entries: [], budget: 0, jenis: "keluar", nama: "", saldoAwal: 0, awalCache: null, awalKotor: true, tabungan: 0, target: 0, sampah: [], tabSumber: "sisa", bayarDari: "sisa" };
 // ================= ISI DUA BARIS INI (Supabase: Project Settings > API) =================
 const SUPABASE_URL = "https://eomksfdigvnmzujunkea.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable__XiGS9xoWZr6laTmGT6bOg_LT5y_wc7";
@@ -585,7 +595,7 @@ function awalBulanDepan(ym) { const [y, m] = ym.split("-").map(Number); return y
 
 // Pengaruh tiap jenis transaksi terhadap sisa uang bulanan
 const efek = (jenis, jumlah, kat) => {
-  if ((jenis === "setor_tabungan" || jenis === "tarik_tabungan") && kat === KAT_TAB_DOMPET) return 0; // uang dari/ke dompet: tidak memengaruhi sisa uang bulanan
+  if ((jenis === "setor_tabungan" || jenis === "tarik_tabungan") && (kat === KAT_TAB_DOMPET || String(kat || "").startsWith(AWALAN_PAKAI))) return 0; // uang dari/ke dompet: tidak memengaruhi sisa uang bulanan
   return (jenis === "masuk" || jenis === "tarik_tabungan" ? 1 : -1) * jumlah;
 };
 
@@ -662,17 +672,18 @@ async function muat() {
 }
 
 function totalan() {
-  let masuk = 0, keluar = 0, ditabung = 0, tabDompet = 0; const per = {};
+  let masuk = 0, keluar = 0, ditabung = 0, tabDompet = 0, tabPakai = 0; const per = {};
   KATEGORI.forEach(k => per[k] = 0);
   state.entries.forEach(e => {
     if (e.jenis === "masuk") masuk += e.jumlah;
+    else if (dipakaiTab(e)) tabPakai += e.jumlah; // dibayar dari tabungan: tidak ikut sisa uang, anggaran, maupun grafik kategori
     else if (e.jenis === "setor_tabungan" || e.jenis === "tarik_tabungan") {
       const nilai = (e.jenis === "setor_tabungan" ? 1 : -1) * e.jumlah;
       if (e.kat === KAT_TAB_DOMPET) tabDompet += nilai; else ditabung += nilai;
     }
     else { keluar += e.jumlah; per[e.kat] = (per[e.kat] || 0) + e.jumlah; }
   });
-  return { masuk, keluar, ditabung, tabDompet, per };
+  return { masuk, keluar, ditabung, tabDompet, tabPakai, per };
 }
 
 function labelBulan(ym) {
@@ -716,9 +727,11 @@ function renderTabungan() {
   $("tabSaldo").textContent = rp(state.tabungan);
   $("kartuTabSaldo").textContent = rp(state.tabungan);
   const tt = totalan(), fm = n => (n < 0 ? "- " : "") + rp(Math.abs(n));
-  $("tabRingkas").textContent = (tt.ditabung || tt.tabDompet)
+  $("tabRingkas").textContent = (tt.ditabung || tt.tabDompet || tt.tabPakai)
     ? "Bulan ini: lewat sisa uang " + fm(tt.ditabung) + " \u2022 lewat dompet " + fm(tt.tabDompet)
+      + (tt.tabPakai ? " \u2022 dipakai untuk pengeluaran " + rp(tt.tabPakai) : "")
     : "Belum ada setoran atau penarikan bulan ini.";
+  setBayar(state.bayarDari); // segarkan keterangan saldo di form transaksi
   const inp = $("targetInput");
   if (document.activeElement !== inp) inp.value = state.target ? new Intl.NumberFormat("id-ID").format(state.target) : "";
   const bar = $("tabBar"), ket = $("tabKet");
@@ -739,6 +752,7 @@ function renderTabungan() {
 // Tampilan satu baris transaksi menurut jenisnya
 function gayaJenis(e) {
   if (e.jenis === "masuk") return { awalan: "+ ", kls: "masuk", nama: "Pemasukan" };
+  if (dipakaiTab(e)) return { awalan: "- ", kls: "tabung", nama: "Pengeluaran dari tabungan: " + e.kat.slice(AWALAN_PAKAI.length) };
   const dompet = e.kat === KAT_TAB_DOMPET;
   if (e.jenis === "setor_tabungan") return { awalan: "→ ", kls: "tabung", nama: "Setor ke tabungan" + (dompet ? " (dari dompet)" : "") };
   if (e.jenis === "tarik_tabungan") return { awalan: "← ", kls: "tabung", nama: "Tarik dari tabungan" + (dompet ? " (ke dompet)" : "") };
@@ -998,25 +1012,36 @@ async function simpanTransaksi() {
   const tgl = $("tgl").value;
   if (!j) { $("pesan").textContent = "Isi jumlah dulu, misalnya 150.000."; return; }
   if (!tgl) { $("pesan").textContent = "Pilih tanggalnya dulu."; return; }
+  const pakaiTab = state.jenis === "keluar" && state.bayarDari === "tabungan";
   $("simpanBtn").disabled = true;
-  const { error } = await sb.from("transactions").insert({
-    household_id: sesi.rumah.id, tanggal: tgl, jenis: state.jenis, jumlah: j,
-    kategori: state.jenis === "keluar" ? $("kategori").value : null,
-    catatan: $("catatan").value.trim() || null, oleh: state.nama
-  });
-  $("simpanBtn").disabled = false;
-  if (error) { $("pesan").textContent = "Gagal menyimpan: " + pesanErr(error); return; }
-  $("jumlah").value = ""; $("catatan").value = "";
-  $("pesan").textContent = (state.jenis === "masuk" ? "Pemasukan " : "Pengeluaran ") + rp(j) + " tersimpan.";
-  state.bulan = tgl.slice(0, 7);
-  state.awalKotor = true;
-  await muat();
+  try {
+    if (pakaiTab) {
+      const saldo = await hitungTabungan(); // saldo terbaru, bukan salinan lama
+      if (j > saldo) { $("pesan").textContent = "Saldo tabungan tidak cukup (" + rp(saldo) + ")."; return; }
+    }
+    const { error } = await sb.from("transactions").insert({
+      household_id: sesi.rumah.id, tanggal: tgl, jumlah: j,
+      jenis: pakaiTab ? "tarik_tabungan" : state.jenis, // pengeluaran dari tabungan = penarikan bertanda khusus
+      kategori: pakaiTab ? AWALAN_PAKAI + $("kategori").value : (state.jenis === "keluar" ? $("kategori").value : null),
+      catatan: $("catatan").value.trim() || null, oleh: state.nama
+    });
+    if (error) { $("pesan").textContent = "Gagal menyimpan: " + pesanErr(error); return; }
+    $("jumlah").value = ""; $("catatan").value = "";
+    $("pesan").textContent = pakaiTab
+      ? "Pengeluaran " + rp(j) + " dibayar dari tabungan tersimpan. Saldo tabungan berkurang."
+      : (state.jenis === "masuk" ? "Pemasukan " : "Pengeluaran ") + rp(j) + " tersimpan.";
+    setBayar("sisa"); // kembali ke bawaan agar tidak salah catat berikutnya
+    state.bulan = tgl.slice(0, 7);
+    state.awalKotor = true;
+    await muat();
+  } catch (e) { $("pesan").textContent = pesanErr(e); }
+  finally { $("simpanBtn").disabled = false; }
 }
 
 function dataTransaksi() {
   const urut = [...state.entries].sort((a, b) => a.tgl.localeCompare(b.tgl) || (a.ts || "").localeCompare(b.ts || ""));
   return [["Tanggal", "Jenis", "Kategori", "Jumlah (Rp)", "Catatan", "Dicatat oleh"]].concat(
-    urut.map(e => [e.tgl, ({ masuk: "Pemasukan", keluar: "Pengeluaran", setor_tabungan: "Setor tabungan", tarik_tabungan: "Tarik tabungan" })[e.jenis],
+    urut.map(e => dipakaiTab(e) ? [e.tgl, "Pengeluaran dari tabungan", e.kat.slice(AWALAN_PAKAI.length), e.jumlah, e.catatan || "", e.oleh || ""] : [e.tgl, ({ masuk: "Pemasukan", keluar: "Pengeluaran", setor_tabungan: "Setor tabungan", tarik_tabungan: "Tarik tabungan" })[e.jenis],
       e.jenis === "masuk" ? "" : (e.jenis === "keluar" ? e.kat : (e.kat || KAT_TAB)), e.jumlah, e.catatan || "", e.oleh || ""])
   );
 }
@@ -1025,7 +1050,7 @@ function dataRingkasan() {
   const r = [
     ["Bulan", labelBulan(state.bulan)],
     ["Saldo awal (dari bulan sebelumnya)", state.saldoAwal || 0],
-    ["Pemasukan", t.masuk], ["Pengeluaran", t.keluar], ["Ditabung bulan ini (lewat sisa uang)", t.ditabung], ["Tabungan lewat dompet bulan ini", t.tabDompet],
+    ["Pemasukan", t.masuk], ["Pengeluaran", t.keluar], ["Ditabung bulan ini (lewat sisa uang)", t.ditabung], ["Tabungan lewat dompet bulan ini", t.tabDompet], ["Pengeluaran dibayar dari tabungan", t.tabPakai],
     ["Sisa uang", (state.saldoAwal || 0) + t.masuk - t.keluar - t.ditabung], ["Saldo tabungan", state.tabungan || 0],
     ["Anggaran bulanan", state.budget || 0], [],
     ["Kategori", "Pengeluaran (Rp)", "Persen"]
@@ -1084,8 +1109,18 @@ async function salinExcel() {
   }
 }
 
+function setBayar(v) {
+  state.bayarDari = v;
+  $("bayarSisa").setAttribute("aria-pressed", v === "sisa" ? "true" : "false");
+  $("bayarTab").setAttribute("aria-pressed", v === "tabungan" ? "true" : "false");
+  $("bayarBantu").textContent = v === "tabungan"
+    ? "Dibayar dari tabungan (saldo " + rp(state.tabungan) + "). Hanya mengurangi saldo tabungan. Sisa uang, anggaran, dan grafik kategori tidak berubah."
+    : "Dibayar dari sisa uang bulan ini, seperti biasa.";
+}
+
 function setJenis(j) {
   state.jenis = j;
+  $("bayarWrap").style.display = j === "keluar" ? "" : "none";
   $("jKeluar").setAttribute("aria-pressed", j === "keluar");
   $("jMasuk").setAttribute("aria-pressed", j === "masuk");
   $("katWrap").style.visibility = j === "keluar" ? "visible" : "hidden";
@@ -1168,6 +1203,9 @@ window.addEventListener("online", () => { if (sesi.rumah) { $("banner").hidden =
   });
   $("kartuTab").onclick = () => pilihTab("tabungan");
   $("btnKeluar3").onclick = konfirmasiKeluar;
+  $("bayarSisa").onclick = () => setBayar("sisa");
+  $("bayarTab").onclick = () => setBayar("tabungan");
+  setBayar("sisa");
   $("srcSisa").onclick = () => setSumber("sisa");
   $("srcDompet").onclick = () => setSumber("dompet");
   setSumber("sisa");
